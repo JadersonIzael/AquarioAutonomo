@@ -66,8 +66,8 @@ int numeroDeAlimentacao = 1;
 int alimentarAutomaticamente = 1;
 int alimentado = 1;
 
-const char *ssid = "2G_FRED";
-const char *password = "cabritavoadora";
+const char *ssid = "userWIFI";
+const char *password = "senhaWIFI";
 
 IPAddress ip(192, 168, 0, 20);
 IPAddress gateway(192, 168, 0, 1);
