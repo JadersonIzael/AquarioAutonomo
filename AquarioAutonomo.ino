@@ -1,25 +1,24 @@
-#include <NTPClient.h>
 #include <ESP32_Servo.h>
-#include <analogWrite.h>
+#include <NTPClient.h>
 #include <WiFi.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <WiFiUdp.h>
 
 // termostato
 #define pinoAquecedor 21
-#define pinoVentilador 16
+#define pinoAquecedor2 16
+#define pinoVentilador 20
 
 // luminaria
 #define pinoIluminacao1 23
 #define pinoIluminacao2 19
 
 // motor submerso e dimmer
-#define pinoMotorSubmerso 22
-#define pinoMotorSubmersoZeroCross 5
 #define pinoZeroCross 5
 #define pinoDimmer 22
-#define iMin 8
-#define iMax 80
+#define iMin 0
+#define iMax 100
 #define periodo 8333
 
 #define pinoAlimentacao 26
@@ -31,8 +30,7 @@ Servo servo;
 
 // dimmer
 String hora;
-char horaAtual[2];
-// char* horaDesejada;
+int horaAtual;
 
 int vazao = 10;
 volatile int intensidadeVazao = 100;
@@ -40,10 +38,14 @@ int botao1 = 0;
 int botao2 = 0;
 int botao3 = 0;
 int botao4 = 0;
+int botao5 = 0;
 
 float temperaturaMedida;
+float temperaturaMedida2;
 float temperatura = 25.00;
+float temperatura2 = 25.00;
 float margemErroTemperatura = 0.25;
+float margemErroTemperatura2 = 0.25;
 
 int iluminacao = 0;
 int inicioIluminacao = 9;
@@ -86,16 +88,16 @@ void setup()
     pinMode(pinoZeroCross, INPUT);
     attachInterrupt(digitalPinToInterrupt(pinoZeroCross), sinalZC, RISING);
 
-    pinMode(pinoMotorSubmerso, OUTPUT);
-    pinMode(pinoMotorSubmersoZeroCross, INPUT);
     pinMode(pinoIluminacao1, OUTPUT);
     pinMode(pinoIluminacao2, OUTPUT);
     pinMode(pinoAquecedor, OUTPUT);
+    pinMode(pinoAquecedor2, OUTPUT);
     pinMode(pinoVentilador, OUTPUT);
 
     digitalWrite(pinoIluminacao1, HIGH);
     digitalWrite(pinoIluminacao2, HIGH);
     digitalWrite(pinoAquecedor, HIGH);
+    digitalWrite(pinoAquecedor2, HIGH);
     digitalWrite(pinoVentilador, HIGH);
 
     servo.attach(pinoAlimentacao, minServo, maxServo);
@@ -117,14 +119,15 @@ void loop()
 
     DS18B20.requestTemperatures();
     temperaturaMedida = DS18B20.getTempCByIndex(0);
+    temperaturaMedida2 = DS18B20.getTempCByIndex(0);
 
     // atualiza o horario
     ntp.forceUpdate();
     hora = ntp.getFormattedTime();
-    horaAtual[0] = hora[0];
-    horaAtual[1] = hora[1];
+    horaAtual = converteHora(hora[0]) * 10;
+    horaAtual += converteHora(hora[1]);
 
-    if (horaDesejada[0] == horaAtual[0] && horaDesejada[1] == horaAtual[1] && alimentado == 0)
+    if (horaAtual == horaAlimentacao && alimentado == 0)
     {
         servo.write(100);
         for (int pos = 100; pos >= 0; pos -= 1)
@@ -156,6 +159,20 @@ void loop()
         digitalWrite(pinoVentilador, LOW);
     }
 
+    if (temperaturaMedida2 <= temperatura2)
+    {
+        digitalWrite(pinoAquecedor2, LOW);
+    }
+
+    if (temperaturaMedida >= temperatura + margemErroTemperatura2)
+    {
+        digitalWrite(pinoAquecedor2, HIGH);
+    }
+
+    if (temperaturaMedida == temperatura + margemErroTemperatura2)
+    {
+        digitalWrite(pinoAquecedor2, HIGH);
+    }
     //---------------------------------------
     // LED -> LOW indica que o LED em questao esta ativo
     if (tipoIluminacao == "MANUAL")
@@ -186,7 +203,7 @@ void loop()
     }
     else
     {
-        if (inicioIluminacao == horaAtual || inicioIluminacao > horaAtual && horaAtual < terminoIluminacao)
+        if (inicioIluminacao >= horaAtual && horaAtual < terminoIluminacao)
         {
             if (iluminacao == 0)
             {
@@ -248,7 +265,7 @@ void loop()
                         // inicio do body
                         client.print("<body>");
                         client.print("<div style = 'background:#222222'>");
-                        client.print("<h1  style='color:#fff9ff; text-align:center; font-size: 4vh;'>Aquário FHO</h1>");
+                        client.print("<h1  style='color:#fff9ff; text-align:center; font-size: 4vh;'>Aquário autônomo</h1>");
 
                         // Vazão
                         client.print("<div style = 'color:#fff9ff; text-align:center; font-size:4vh'>");
@@ -302,9 +319,23 @@ void loop()
                         client.print("<div style = 'color:#fff9ff; text-align:center; font-size:4vh'>");
                         client.print("Temperatura [ °C ]");
                         client.print("<br>");
+                        client.print(float(temperaturaMedida));
+                        client.print("<br>");
                         client.print("<a href=\"/C\"><button style = 'background-color: #222222; border: none;  color: #fff9ff;  padding: 10px 10px; text-decoration: none; display: inline-block; font-size: 4vh;'>-</button></a>");
                         client.print(int(temperatura));
                         client.print("<a href=\"/D\"><button style = 'background-color: #222222; border: none;  color: #fff9ff;  padding: 10px 10px; text-decoration: none; display: inline-block; font-size: 4vh;'>+</button></a> <br>");
+                        client.print("<br>");
+                        client.print("</div>");
+
+                        // Temperatura2
+                        client.print("<div style = 'color:#fff9ff; text-align:center; font-size:4vh'>");
+                        client.print("Temperatura [ °C ]");
+                        client.print("<br>");
+                        client.print(float(temperaturaMedida2));
+                        client.print("<br>");
+                        client.print("<a href=\"/TEMP1\"><button style = 'background-color: #222222; border: none;  color: #fff9ff;  padding: 10px 10px; text-decoration: none; display: inline-block; font-size: 4vh;'>-</button></a>");
+                        client.print(int(temperatura2));
+                        client.print("<a href=\"/TEMP2\"><button style = 'background-color: #222222; border: none;  color: #fff9ff;  padding: 10px 10px; text-decoration: none; display: inline-block; font-size: 4vh;'>+</button></a> <br>");
                         client.print("<br>");
                         client.print("</div>");
 
@@ -399,20 +430,20 @@ void loop()
 
                         client.print("</div>");
                         client.print("</body>");
-                        
+
                         client.println();
-                        
+
                         break;
                     }
 
                     else
-                    { 
+                    {
                         currentLine = "";
                     }
                 }
 
                 else if (c != '\r')
-                {                     
+                {
                     currentLine += c;
                 }
 
@@ -490,6 +521,17 @@ void loop()
                 {
                     if (temperatura < 30)
                         temperatura += 1;
+                }
+
+                if (currentLine.endsWith("GET /TEMP1"))
+                {
+                    if (temperatura2 > 15)
+                        temperatura2 -= 1;
+                }
+                if (currentLine.endsWith("GET /TEMP2"))
+                {
+                    if (temperatura2 < 30)
+                        temperatura2 += 1;
                 }
                 //------------------------iluminação----------------------------------------------
                 if (currentLine.endsWith("GET /E"))
@@ -580,30 +622,44 @@ void loop()
             }
         }
     }
-    
+
     client.stop();
     Serial.println("Client Disconnected.");
 }
 
-int converteHora(char hora){
-  int retorno;
-  if(hora == '0') retorno = 0;
-  else if(hora == '1') retorno = 1;
-  else if(hora == '2') retorno = 2;
-  else if(hora == '3') retorno = 3;
-  else if(hora == '4') retorno = 4;
-  else if(hora == '5') retorno = 5;
-  else if(hora == '6') retorno = 6;
-  else if(hora == '7') retorno = 7;
-  else if(hora == '8') retorno = 8;
-  else if(hora == '9') retorno = 9;
-  return retorno;
+int converteHora(char hora)
+{
+    int retorno;
+    if (hora == '0')
+        retorno = 0;
+    else if (hora == '1')
+        retorno = 1;
+    else if (hora == '2')
+        retorno = 2;
+    else if (hora == '3')
+        retorno = 3;
+    else if (hora == '4')
+        retorno = 4;
+    else if (hora == '5')
+        retorno = 5;
+    else if (hora == '6')
+        retorno = 6;
+    else if (hora == '7')
+        retorno = 7;
+    else if (hora == '8')
+        retorno = 8;
+    else if (hora == '9')
+        retorno = 9;
+    return retorno;
 }
-void sinalZC() {
-  if ( intensidade < iMin) return;
-  if ( intensidade > iMax) intensidade = iMax;
-  int delayInt = periodo - (intensidade * (periodo / 100) );
-  digitalWrite(pinoDimmer, LOW);
-  delayMicroseconds(delayInt);
-  digitalWrite(pinoDimmer, HIGH);
+void sinalZC()
+{
+    if (intensidadeVazao < iMin)
+        return;
+    if (intensidadeVazao > iMax)
+        intensidadeVazao = iMax;
+    int delayInt = periodo - (intensidadeVazao * (periodo / 100));
+    digitalWrite(pinoDimmer, LOW);
+    delayMicroseconds(delayInt);
+    digitalWrite(pinoDimmer, HIGH);
 }
